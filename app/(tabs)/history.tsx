@@ -1,13 +1,31 @@
-import React, { useState, useCallback } from 'react';
-import { ScrollView, View, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import {
+  ScrollView,
+  View,
+  StyleSheet,
+  FlatList,
+  useWindowDimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text, ActivityIndicator, Portal, Modal, Button } from 'react-native-paper';
 import { router, useFocusEffect } from 'expo-router';
 import { colors as C } from '../../theme';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, asc } from 'drizzle-orm';
 import { db } from '../../db/client';
-import { workoutSessions, workoutTemplates, programs, setLogs, templateExercises, exercises } from '../../db/schema';
+import {
+  workoutSessions,
+  workoutTemplates,
+  programs,
+  setLogs,
+  templateExercises,
+  exercises,
+  bodyStats,
+} from '../../db/schema';
+import { useSettings } from '../../contexts/SettingsContext';
 import Calendar from '../../components/Calendar';
+import { setPendingIntent } from '../../utils/pendingWorkout';
 
 interface SessionRow {
   id: number;
@@ -24,10 +42,14 @@ interface DayDetail {
   programName: string;
   exercises: Array<{ name: string; sets: number; reps: number }>;
   setsCompleted: number;
-  templateId?: number;
-  programId?: number;
-  isCustom?: boolean;
-  customExercises?: Array<{ exerciseId: number; sets: number; reps: number; order: number }> | null;
+  templateId: number;
+  programId: number | null;
+  isCustom: boolean;
+}
+
+interface DayBody {
+  weightKg: number;
+  heightCm: number | null;
 }
 
 function formatDate(dateStr: string): string {
@@ -38,10 +60,19 @@ function formatDate(dateStr: string): string {
 }
 
 export default function HistoryScreen() {
+  const { settings } = useSettings();
+  const { width } = useWindowDimensions();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDayDetail, setSelectedDayDetail] = useState<DayDetail | null>(null);
+  const [daySessions, setDaySessions] = useState<DayDetail[]>([]);
+  const [dayBody, setDayBody] = useState<DayBody | null>(null);
+  const [dayDate, setDayDate] = useState<string>('');
+  const [dayIndex, setDayIndex] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
+  const pagerRef = useRef<FlatList<DayDetail>>(null);
+
+  // Inner modal page width (modal margin: 20 each side, no internal h-padding on FlatList)
+  const pageWidth = width - 40;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -54,9 +85,9 @@ export default function HistoryScreen() {
           programName: programs.name,
         })
         .from(workoutSessions)
-        .innerJoin(workoutTemplates, eq(workoutSessions.templateId, workoutTemplates.id))
-        .innerJoin(programs, eq(workoutSessions.programId, programs.id))
-        .orderBy(desc(workoutSessions.date))
+        .leftJoin(workoutTemplates, eq(workoutSessions.templateId, workoutTemplates.id))
+        .leftJoin(programs, eq(workoutSessions.programId, programs.id))
+        .orderBy(desc(workoutSessions.date), desc(workoutSessions.id))
         .all();
 
       const allLogs = db
@@ -66,7 +97,10 @@ export default function HistoryScreen() {
 
       setSessions(
         rows.map((r) => ({
-          ...r,
+          id: r.id,
+          date: r.date,
+          templateLabel: r.templateLabel ?? 'Custom Workout',
+          programName: r.programName ?? 'Custom',
           setsCompleted: allLogs.filter((l) => l.sessionId === r.id && l.completed).length,
         })),
       );
@@ -79,7 +113,8 @@ export default function HistoryScreen() {
 
   const loadDayDetail = useCallback((dateStr: string) => {
     try {
-      const session = db
+      // ALL sessions for the day (oldest first), including custom (templateId may be -1)
+      const sessionRows = db
         .select({
           id: workoutSessions.id,
           templateId: workoutSessions.templateId,
@@ -91,37 +126,22 @@ export default function HistoryScreen() {
           customExercises: workoutSessions.customExercises,
         })
         .from(workoutSessions)
-        .innerJoin(workoutTemplates, eq(workoutSessions.templateId, workoutTemplates.id))
-        .innerJoin(programs, eq(workoutSessions.programId, programs.id))
+        .leftJoin(workoutTemplates, eq(workoutSessions.templateId, workoutTemplates.id))
+        .leftJoin(programs, eq(workoutSessions.programId, programs.id))
         .where(eq(workoutSessions.date, dateStr))
-        .get();
+        .orderBy(asc(workoutSessions.id))
+        .all();
 
-      if (!session) return;
-
-      let exerciseData: Array<{ name: string; sets: number; reps: number }>;
-
-      if (session.isCustom && session.customExercises) {
-        // Load custom exercises
-        exerciseData = session.customExercises.map((ex: any) => {
-          const exercise = db.select({ name: exercises.name }).from(exercises).where(eq(exercises.id, ex.exerciseId)).get();
-          return {
-            name: exercise?.name || 'Unknown',
-            sets: ex.sets,
-            reps: ex.reps,
-          };
-        });
-      } else {
-        // Load template exercises
-        exerciseData = db
-          .select({
-            name: exercises.name,
-            sets: templateExercises.sets,
-            reps: templateExercises.reps,
-          })
-          .from(templateExercises)
-          .innerJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
-          .where(eq(templateExercises.templateId, session.templateId))
-          .all();
+      if (sessionRows.length === 0) {
+        // No workout but maybe a body-stats entry exists for the day
+        const body = db.select().from(bodyStats).where(eq(bodyStats.date, dateStr)).get();
+        if (!body) return;
+        setDaySessions([]);
+        setDayBody({ weightKg: body.weightKg, heightCm: body.heightCm ?? null });
+        setDayDate(dateStr);
+        setDayIndex(0);
+        setModalVisible(true);
+        return;
       }
 
       const allLogs = db
@@ -129,54 +149,76 @@ export default function HistoryScreen() {
         .from(setLogs)
         .all();
 
-      setSelectedDayDetail({
-        sessionId: session.id,
-        date: session.date,
-        templateLabel: session.templateLabel,
-        programName: session.programName,
-        exercises: exerciseData,
-        setsCompleted: allLogs.filter((l) => l.sessionId === session.id && l.completed).length,
-        templateId: session.templateId,
-        programId: session.programId,
-        isCustom: session.isCustom,
-        customExercises: session.customExercises,
+      const details: DayDetail[] = sessionRows.map((s) => {
+        let exerciseData: Array<{ name: string; sets: number; reps: number }>;
+        if (s.isCustom && Array.isArray(s.customExercises)) {
+          exerciseData = (s.customExercises as any[]).map((ex) => {
+            const ex0 = db.select({ name: exercises.name }).from(exercises).where(eq(exercises.id, ex.exerciseId)).get();
+            return { name: ex0?.name || 'Unknown', sets: ex.sets, reps: ex.reps };
+          });
+        } else {
+          exerciseData = db
+            .select({ name: exercises.name, sets: templateExercises.sets, reps: templateExercises.reps })
+            .from(templateExercises)
+            .innerJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+            .where(eq(templateExercises.templateId, s.templateId))
+            .all();
+        }
+        return {
+          sessionId: s.id,
+          date: s.date,
+          templateLabel: s.templateLabel ?? 'Custom Workout',
+          programName: s.programName ?? 'Custom',
+          exercises: exerciseData,
+          setsCompleted: allLogs.filter((l) => l.sessionId === s.id && l.completed).length,
+          templateId: s.templateId,
+          programId: s.programId,
+          isCustom: !!s.isCustom,
+        };
       });
+
+      const body = db.select().from(bodyStats).where(eq(bodyStats.date, dateStr)).get();
+      setDayBody(body ? { weightKg: body.weightKg, heightCm: body.heightCm ?? null } : null);
+      setDaySessions(details);
+      setDayDate(dateStr);
+      setDayIndex(0);
       setModalVisible(true);
     } catch (e) {
       console.error('Error loading day detail:', e);
     }
   }, []);
 
-  const repeatWorkout = useCallback(() => {
-    if (!selectedDayDetail) return;
-
-    const today = new Date().toISOString().split('T')[0];
-
-    if (selectedDayDetail.isCustom && selectedDayDetail.customExercises) {
-      // Repeat custom workout
-      db.insert(workoutSessions)
-        .values({
-          programId: selectedDayDetail.programId || 1,
-          templateId: -1,
-          date: today,
-          isCustom: true,
-          customExercises: selectedDayDetail.customExercises,
-        })
-        .run();
-    } else if (selectedDayDetail.templateId) {
-      // Repeat template workout
-      db.insert(workoutSessions)
-        .values({
-          programId: selectedDayDetail.programId || 1,
-          templateId: selectedDayDetail.templateId,
-          date: today,
-        })
-        .run();
-    }
-
+  const repeatWorkout = useCallback((d: DayDetail) => {
     setModalVisible(false);
-    router.navigate('/');
-  }, [selectedDayDetail]);
+    if (d.isCustom) {
+      // Custom workouts are stored per-session (no shared template); clone the
+      // original session's customExercises into a new in-progress session.
+      setPendingIntent({ kind: 'customRepeat', sourceSessionId: d.sessionId });
+    } else if (d.templateId > 0 && d.programId != null) {
+      setPendingIntent({
+        kind: 'template',
+        templateId: d.templateId,
+        programId: d.programId,
+      });
+    }
+    router.navigate('/today');
+  }, []);
+
+  const onPagerScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+    if (idx !== dayIndex) setDayIndex(idx);
+  };
+
+  const formatBody = (b: DayBody) => {
+    const w = settings.weightUnit === 'kg'
+      ? `${b.weightKg.toFixed(1)} kg`
+      : `${(b.weightKg * 2.20462).toFixed(1)} lbs`;
+    const bmi = b.heightCm && b.heightCm > 0
+      ? (b.weightKg / Math.pow(b.heightCm / 100, 2)).toFixed(1)
+      : null;
+    return bmi ? `${w}  ·  BMI ${bmi}` : w;
+  };
+
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -198,9 +240,12 @@ export default function HistoryScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>History</Text>
       <Text style={styles.subheading}>Your training journey</Text>
-      <Calendar onDateSelect={loadDayDetail} sessions={sessions.map((s) => ({ date: s.date }))} />
+      <Calendar
+        onDateSelect={loadDayDetail}
+        sessions={sessions.map((s) => ({ date: s.date }))}
+      />
       <Text style={styles.subheading}>Recent Sessions</Text>
-      {sessions.map((s) => (
+      {sessions.slice(0, 5).map((s) => (
         <View key={s.id} style={styles.card}>
           <View style={styles.cardTop}>
             <Text style={styles.date}>{formatDate(s.date)}</Text>
@@ -215,29 +260,74 @@ export default function HistoryScreen() {
         </View>
       ))}
       <Portal>
-        <Modal visible={modalVisible} onDismiss={() => setModalVisible(false)} contentContainerStyle={styles.modal}>
-          {selectedDayDetail && (
-            <>
-              <Text style={styles.modalTitle}>{formatDate(selectedDayDetail.date)}</Text>
-              <Text style={styles.modalProgram}>{selectedDayDetail.programName}</Text>
-              <Text style={styles.modalTemplate}>{selectedDayDetail.templateLabel}</Text>
-              <View style={styles.modalDivider} />
-              <Text style={styles.modalSectionTitle}>Exercises</Text>
-              {selectedDayDetail.exercises.map((ex, idx) => (
-                <View key={idx} style={styles.modalExercise}>
-                  <Text style={styles.modalExerciseName}>{ex.name}</Text>
-                  <Text style={styles.modalExerciseDetail}>{ex.sets} × {ex.reps}</Text>
-                </View>
-              ))}
-              <View style={styles.modalDivider} />
-              <Text style={styles.modalSummary}>Total sets completed: {selectedDayDetail.setsCompleted}</Text>
-              <Button mode="contained" style={styles.modalButton} onPress={repeatWorkout}>
-                Repeat Workout
-              </Button>
+        <Modal
+          visible={modalVisible}
+          onDismiss={() => setModalVisible(false)}
+          contentContainerStyle={styles.modal}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{formatDate(dayDate)}</Text>
+            {dayBody && <Text style={styles.modalBody}>{formatBody(dayBody)}</Text>}
+            {daySessions.length > 1 && (
+              <View style={styles.dotsRow}>
+                {daySessions.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[styles.dot, i === dayIndex && styles.dotActive]}
+                  />
+                ))}
+                <Text style={styles.pageCounter}>
+                  {dayIndex + 1} of {daySessions.length}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {daySessions.length === 0 ? (
+            <View style={styles.bodyOnly}>
+              <Text style={styles.modalSummary}>No workouts logged on this day.</Text>
               <Button mode="outlined" style={styles.modalButton} onPress={() => setModalVisible(false)}>
                 Close
               </Button>
-            </>
+            </View>
+          ) : (
+            <FlatList
+              ref={pagerRef}
+              data={daySessions}
+              keyExtractor={(d) => String(d.sessionId)}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={onPagerScrollEnd}
+              getItemLayout={(_, i) => ({ length: pageWidth, offset: pageWidth * i, index: i })}
+              renderItem={({ item, index }) => (
+                <ScrollView style={{ width: pageWidth }} contentContainerStyle={styles.pageContent}>
+                  <Text style={styles.modalProgram}>
+                    {item.programName}
+                    {daySessions.length > 1 ? `  ·  Session ${index + 1}` : ''}
+                  </Text>
+                  <Text style={styles.modalTemplate}>{item.templateLabel}</Text>
+                  <View style={styles.modalDivider} />
+                  <Text style={styles.modalSectionTitle}>Exercises</Text>
+                  {item.exercises.map((ex, idx) => (
+                    <View key={idx} style={styles.modalExercise}>
+                      <Text style={styles.modalExerciseName}>{ex.name}</Text>
+                      <Text style={styles.modalExerciseDetail}>{ex.sets} × {ex.reps}</Text>
+                    </View>
+                  ))}
+                  <View style={styles.modalDivider} />
+                  <Text style={styles.modalSummary}>
+                    Total sets completed: {item.setsCompleted}
+                  </Text>
+                  <Button mode="contained" style={styles.modalButton} onPress={() => repeatWorkout(item)}>
+                    Repeat Workout
+                  </Button>
+                  <Button mode="outlined" style={styles.modalButton} onPress={() => setModalVisible(false)}>
+                    Close
+                  </Button>
+                </ScrollView>
+              )}
+            />
           )}
         </Modal>
       </Portal>
@@ -267,8 +357,10 @@ const styles = StyleSheet.create({
   templateLabel: { fontSize: 14, fontWeight: '600', color: C.textPrimary },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: C.textPrimary },
   emptySubText: { fontSize: 14, color: C.textSecondary, marginTop: 8, textAlign: 'center' },
-  modal: { backgroundColor: C.surface, padding: 24, margin: 20, borderRadius: 20 },
+  modal: { backgroundColor: C.surface, marginHorizontal: 20, marginVertical: 60, borderRadius: 20, paddingVertical: 20, overflow: 'hidden' },
+  modalHeader: { paddingHorizontal: 24, paddingBottom: 12 },
   modalTitle: { fontSize: 22, fontWeight: '700', marginBottom: 4, color: C.textPrimary },
+  modalBody: { fontSize: 13, color: C.move, fontWeight: '700', marginBottom: 4 },
   modalProgram: { fontSize: 16, color: C.textSecondary, marginBottom: 2 },
   modalTemplate: { fontSize: 18, fontWeight: '600', marginBottom: 16, color: C.textPrimary },
   modalDivider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
@@ -278,4 +370,10 @@ const styles = StyleSheet.create({
   modalExerciseDetail: { fontSize: 14, color: C.textSecondary },
   modalSummary: { fontSize: 15, fontWeight: '600', marginBottom: 16, color: C.textPrimary },
   modalButton: { marginTop: 8 },
+  pageContent: { paddingHorizontal: 24, paddingBottom: 8 },
+  bodyOnly: { paddingHorizontal: 24, paddingBottom: 12 },
+  dotsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.border },
+  dotActive: { backgroundColor: C.move, width: 18 },
+  pageCounter: { marginLeft: 8, fontSize: 12, color: C.textSecondary, fontWeight: '600' },
 });

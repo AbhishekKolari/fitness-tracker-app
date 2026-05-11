@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Provider as PaperProvider, Card, Text, Button, ActivityIndicator } from 'react-native-paper';
+import { Card, Text, Button, ActivityIndicator } from 'react-native-paper';
+import { colors as C } from '../theme';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { workoutSessions, workoutTemplates, programs, setLogs, exercises } from '../db/schema';
@@ -100,14 +102,12 @@ export default function SummaryScreen() {
 
   if (!summary) {
     return (
-      <PaperProvider>
-        <View style={styles.center}>
-          <Text style={styles.title}>No session data found.</Text>
-          <Button mode="contained" onPress={() => router.replace('/')} style={styles.button}>
-            Back to Today
-          </Button>
-        </View>
-      </PaperProvider>
+      <SafeAreaView style={styles.center} edges={['top']}>
+        <Text style={styles.title}>No session data found.</Text>
+        <Button mode="contained" onPress={() => router.replace('/today')} style={styles.button}>
+          Back to Today
+        </Button>
+      </SafeAreaView>
     );
   }
 
@@ -123,9 +123,10 @@ export default function SummaryScreen() {
     : `${(totalVolume * 2.20462).toFixed(0)} lbs`;
 
   return (
-    <PaperProvider>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
-        <Text style={styles.title}>Workout Complete!</Text>
+        <Text style={styles.eyebrow}>Workout Complete</Text>
+        <Text style={styles.title}>Nice work 💪</Text>
         <Text style={styles.date}>{formatDate(summary.date)}</Text>
         <Text style={styles.subtitle}>{summary.programName} · {summary.templateLabel}</Text>
 
@@ -160,31 +161,33 @@ export default function SummaryScreen() {
           ))}
         </ScrollView>
 
-        <Button mode="contained" onPress={() => router.replace('/')} style={styles.button}>
+        <Button mode="contained" onPress={() => router.replace('/today')} style={styles.button}>
           Back to Today
         </Button>
       </View>
-    </PaperProvider>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 16 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  title: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', color: '#111827', marginBottom: 4 },
-  date: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 2 },
-  subtitle: { fontSize: 15, fontWeight: '600', color: '#374151', textAlign: 'center', marginBottom: 20 },
+  safe: { flex: 1, backgroundColor: C.bg },
+  container: { flex: 1, backgroundColor: C.bg, padding: 16 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: C.bg },
+  eyebrow: { fontSize: 12, color: C.move, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center', marginTop: 8 },
+  title: { fontSize: 32, fontWeight: '800', textAlign: 'center', color: C.textPrimary, marginBottom: 4, letterSpacing: -0.5 },
+  date: { fontSize: 14, color: C.textSecondary, textAlign: 'center', marginBottom: 2 },
+  subtitle: { fontSize: 15, fontWeight: '600', color: C.textPrimary, textAlign: 'center', marginBottom: 20 },
   statsRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
   statBox: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 14,
-    alignItems: 'center', elevation: 1,
+    flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 16,
+    alignItems: 'center',
   },
-  statValue: { fontSize: 20, fontWeight: '700', color: '#6200ee' },
-  statLabel: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  statValue: { fontSize: 22, fontWeight: '800', color: C.move, letterSpacing: -0.5 },
+  statLabel: { fontSize: 11, color: C.textSecondary, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
   scrollView: { flex: 1, marginBottom: 12 },
-  card: { marginBottom: 12 },
+  card: { marginBottom: 12, backgroundColor: C.surface, borderRadius: 16 },
   setRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5 },
-  setLabel: { fontSize: 14, color: '#6B7280' },
-  setDetail: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  button: { marginBottom: 8 },
+  setLabel: { fontSize: 14, color: C.textSecondary },
+  setDetail: { fontSize: 14, fontWeight: '600', color: C.textPrimary },
+  button: { marginBottom: 8, borderRadius: 14, paddingVertical: 4 },
 });

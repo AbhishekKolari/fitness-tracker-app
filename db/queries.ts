@@ -121,12 +121,28 @@ export function getAvailableTemplates(programId: number): WorkoutTemplate[] {
 }
 
 export function seedIfEmpty(): void {
-  const existing = db.select({ id: exercises.id }).from(exercises).limit(1).get();
-  if (existing) return;
-
+  // Upsert all exercises by id so newly added entries appear for existing users
   for (const exercise of EXERCISES) {
-    db.insert(exercises).values(exercise).run();
+    const existing = db.select({ id: exercises.id }).from(exercises).where(eq(exercises.id, exercise.id!)).get();
+    if (existing) {
+      db.update(exercises)
+        .set({
+          name: exercise.name,
+          category: exercise.category,
+          muscleGroups: exercise.muscleGroups,
+          formCues: exercise.formCues,
+          youtubeUrl: exercise.youtubeUrl ?? null,
+        })
+        .where(eq(exercises.id, exercise.id!))
+        .run();
+    } else {
+      db.insert(exercises).values(exercise).run();
+    }
   }
+
+  // Programs/templates seeded only on first run (preserve user customizations)
+  const programExists = db.select({ id: programs.id }).from(programs).limit(1).get();
+  if (programExists) return;
 
   for (const p of PROGRAMS) {
     db.insert(programs).values({ name: p.name, description: p.description, type: p.type }).run();

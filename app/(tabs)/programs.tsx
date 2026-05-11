@@ -1,13 +1,15 @@
 import React, { useState, useCallback } from 'react';
-import { ScrollView, View, StyleSheet, FlatList } from 'react-native';
+import { ScrollView, View, StyleSheet, FlatList, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, Button, Text, ActivityIndicator, FAB, Portal, Modal, TextInput, Searchbar } from 'react-native-paper';
 import { colors as C } from '../../theme';
+import { localDateStr } from '../../utils/date';
 import { router, useFocusEffect } from 'expo-router';
-import { eq, asc, and } from 'drizzle-orm';
+import { eq, asc, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../../db/client';
 import { programs, workoutTemplates, templateExercises, exercises, workoutSessions } from '../../db/schema';
 import { useSettings } from '../../contexts/SettingsContext';
+import { setPendingIntent } from '../../utils/pendingWorkout';
 
 interface TemplateInfo {
   id: number;
@@ -76,7 +78,7 @@ export default function ProgramsScreen() {
 
       // Check if there's a session for today for the active program
       if (settings.activeProgramId) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localDateStr();
         const todaySession = db
           .select({ id: workoutSessions.id })
           .from(workoutSessions)
@@ -95,9 +97,41 @@ export default function ProgramsScreen() {
 
   useFocusEffect(useCallback(() => { loadPrograms(); }, [loadPrograms]));
 
+  const startTemplate = (programId: number, templateId: number) => {
+    const today = localDateStr();
+    // Only look for an IN-PROGRESS session (durationSeconds IS NULL).
+    // Completed sessions for today are kept untouched — multiple workouts per day are allowed.
+    const activeInProgress = db
+      .select({ id: workoutSessions.id, templateId: workoutSessions.templateId })
+      .from(workoutSessions)
+      .where(and(eq(workoutSessions.date, today), isNull(workoutSessions.durationSeconds)))
+      .orderBy(desc(workoutSessions.id))
+      .limit(1)
+      .get();
+
+    const proceed = () => {
+      setActiveProgramId(programId);
+      setPendingIntent({ kind: 'template', templateId, programId });
+      router.navigate('/today');
+    };
+
+    if (activeInProgress && activeInProgress.templateId !== templateId) {
+      Alert.alert(
+        'Discard in-progress workout?',
+        'You have a workout in progress. Discard it and start the selected one? Completed workouts today will be kept.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: proceed },
+        ],
+      );
+    } else {
+      proceed();
+    }
+  };
+
   const activate = (programId: number) => {
     setActiveProgramId(programId);
-    router.navigate('/');
+    router.navigate('/today');
   };
 
   const openCustomBuilder = useCallback(() => {
@@ -140,7 +174,7 @@ export default function ProgramsScreen() {
   const startCustomWorkout = useCallback(() => {
     if (customExercises.length === 0) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateStr();
 
     // Create a temporary custom workout session
     const customTemplateId = -1; // Use -1 as a marker for custom workouts
@@ -161,8 +195,20 @@ export default function ProgramsScreen() {
       })
       .run();
 
+    // Look up the id we just inserted and hand it off so Today can load it directly
+    const created = db
+      .select({ id: workoutSessions.id })
+      .from(workoutSessions)
+      .where(and(eq(workoutSessions.date, today), isNull(workoutSessions.durationSeconds)))
+      .orderBy(desc(workoutSessions.id))
+      .limit(1)
+      .get();
+
     setShowCustomBuilder(false);
-    router.navigate('/');
+    if (created?.id) {
+      setPendingIntent({ kind: 'session', sessionId: created.id });
+    }
+    router.navigate('/today');
   }, [customExercises, settings.activeProgramId]);
 
   if (!loaded || !dataLoaded) {
@@ -211,24 +257,22 @@ export default function ProgramsScreen() {
                 <View style={styles.templatesContainer}>
                   {p.templates.map((t) => (
                     <View key={t.id} style={styles.templateRow}>
-                      <Text style={styles.templateLabel}>{t.label}</Text>
-                      <Text style={styles.templateExercises}>{t.exerciseNames.join(' · ')}</Text>
+                      <View style={styles.templateInfo}>
+                        <Text style={styles.templateLabel}>{t.label}</Text>
+                        <Text style={styles.templateExercises}>{t.exerciseNames.join(' · ')}</Text>
+                      </View>
+                      <Button
+                        mode="contained-tonal"
+                        compact
+                        onPress={() => startTemplate(p.id, t.id)}
+                        style={styles.startTemplateBtn}
+                      >
+                        Start
+                      </Button>
                     </View>
                   ))}
                 </View>
               </Card.Content>
-
-              <Card.Actions>
-                {isActive ? (
-                  <Button mode="outlined" onPress={() => router.navigate('/')}>
-                    Go to Today
-                  </Button>
-                ) : (
-                  <Button mode="contained" onPress={() => activate(p.id)}>
-                    Start This Program
-                  </Button>
-                )}
-              </Card.Actions>
             </Card>
           );
         })}
@@ -236,6 +280,7 @@ export default function ProgramsScreen() {
 
       <FAB
         icon="plus"
+        color={C.move}
         style={styles.fab}
         onPress={openCustomBuilder}
         label="Custom Workout"
@@ -243,81 +288,103 @@ export default function ProgramsScreen() {
 
       <Portal>
         <Modal visible={showCustomBuilder} onDismiss={() => setShowCustomBuilder(false)} contentContainerStyle={styles.customBuilderModal}>
-          <Text style={styles.modalTitle}>Build Custom Workout</Text>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Build Custom Workout</Text>
+            <Button compact icon="close" onPress={() => setShowCustomBuilder(false)} textColor={C.textSecondary}>
+              {''}
+            </Button>
+          </View>
           <Button mode="outlined" onPress={openExercisePicker} style={styles.addExerciseButton}>
             + Add Exercise
           </Button>
 
-          {customExercises.map((ex, index) => (
-            <Card key={index} style={styles.customExerciseCard}>
-              <Card.Content>
-                <View style={styles.customExerciseHeader}>
-                  <Text style={styles.customExerciseName}>{ex.name}</Text>
-                  <Button compact onPress={() => removeExerciseFromCustomWorkout(index)} textColor="#EF4444">
-                    Remove
-                  </Button>
-                </View>
-                <View style={styles.customExerciseInputs}>
-                  <TextInput
-                    label="Sets"
-                    value={ex.sets.toString()}
-                    onChangeText={(t) => updateCustomExercise(index, 'sets', parseInt(t) || 3)}
-                    keyboardType="numeric"
-                    mode="outlined"
-                    dense
-                    style={styles.customInput}
-                  />
-                  <TextInput
-                    label="Reps"
-                    value={ex.reps.toString()}
-                    onChangeText={(t) => updateCustomExercise(index, 'reps', parseInt(t) || 10)}
-                    keyboardType="numeric"
-                    mode="outlined"
-                    dense
-                    style={styles.customInput}
-                  />
-                </View>
-              </Card.Content>
-            </Card>
-          ))}
+          <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 8 }}>
+            {customExercises.length === 0 ? (
+              <View style={styles.customEmpty}>
+                <Text style={styles.customEmptyText}>No exercises yet. Tap "+ Add Exercise" to build your workout.</Text>
+              </View>
+            ) : (
+              customExercises.map((ex, index) => (
+                <Card key={index} style={[styles.customExerciseCard, styles.customExerciseCardBg]}>
+                  <Card.Content>
+                    <View style={styles.customExerciseHeader}>
+                      <Text style={styles.customExerciseName}>{ex.name}</Text>
+                      <Button compact onPress={() => removeExerciseFromCustomWorkout(index)} textColor="#EF4444">
+                        Remove
+                      </Button>
+                    </View>
+                    <View style={styles.customExerciseInputs}>
+                      <TextInput
+                        label="Sets"
+                        value={ex.sets.toString()}
+                        onChangeText={(t) => updateCustomExercise(index, 'sets', parseInt(t) || 3)}
+                        keyboardType="numeric"
+                        mode="outlined"
+                        dense
+                        style={styles.customInput}
+                      />
+                      <TextInput
+                        label="Reps"
+                        value={ex.reps.toString()}
+                        onChangeText={(t) => updateCustomExercise(index, 'reps', parseInt(t) || 10)}
+                        keyboardType="numeric"
+                        mode="outlined"
+                        dense
+                        style={styles.customInput}
+                      />
+                    </View>
+                  </Card.Content>
+                </Card>
+              ))
+            )}
+          </ScrollView>
 
-          {customExercises.length > 0 && (
-            <Button mode="contained" onPress={startCustomWorkout} style={styles.startCustomButton}>
-              Start Custom Workout
+          <View style={styles.modalFooter}>
+            {customExercises.length > 0 && (
+              <Button mode="contained" onPress={startCustomWorkout} style={styles.startCustomButton}>
+                Start Custom Workout
+              </Button>
+            )}
+            <Button mode="outlined" onPress={() => setShowCustomBuilder(false)} style={styles.cancelButton}>
+              Cancel
             </Button>
-          )}
-
-          <Button mode="outlined" onPress={() => setShowCustomBuilder(false)} style={styles.cancelButton}>
-            Cancel
-          </Button>
+          </View>
         </Modal>
 
         <Modal visible={showExercisePicker} onDismiss={() => setShowExercisePicker(false)} contentContainerStyle={styles.exercisePickerModal}>
-          <Text style={styles.modalTitle}>Select Exercise</Text>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Exercise</Text>
+            <Button compact icon="close" onPress={() => setShowExercisePicker(false)} textColor={C.textSecondary}>
+              {''}
+            </Button>
+          </View>
           <Searchbar
             placeholder="Search exercises..."
             onChangeText={setExerciseSearchQuery}
             value={exerciseSearchQuery}
             style={styles.searchBar}
           />
-          <FlatList
-            data={availableExercises.filter((ex) =>
-              ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
-            )}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
-              <Card style={styles.exerciseCard} onPress={() => addExerciseToCustomWorkout(item.id, item.name)}>
-                <Card.Content>
-                  <Text style={styles.exerciseCardTitle}>{item.name}</Text>
-                  <Text style={styles.exerciseCardSubtitle}>{item.category}</Text>
-                </Card.Content>
-              </Card>
-            )}
-            style={styles.exerciseList}
-          />
-          <Button mode="outlined" onPress={() => setShowExercisePicker(false)} style={styles.closeButton}>
-            Cancel
-          </Button>
+          <View style={styles.modalBody}>
+            <FlatList
+              data={availableExercises.filter((ex) =>
+                ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
+              )}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <Card style={[styles.exerciseCard, styles.exerciseCardBg]} onPress={() => addExerciseToCustomWorkout(item.id, item.name)}>
+                  <Card.Content>
+                    <Text style={styles.exerciseCardTitle}>{item.name}</Text>
+                    <Text style={styles.exerciseCardSubtitle}>{item.category}</Text>
+                  </Card.Content>
+                </Card>
+              )}
+            />
+          </View>
+          <View style={styles.modalFooter}>
+            <Button mode="outlined" onPress={() => setShowExercisePicker(false)} style={styles.closeButton}>
+              Cancel
+            </Button>
+          </View>
         </Modal>
       </Portal>
     </SafeAreaView>
@@ -340,28 +407,62 @@ const styles = StyleSheet.create({
   activePill: { fontSize: 12, color: C.move, fontWeight: '700', marginBottom: 8, letterSpacing: 0.5, textTransform: 'uppercase' },
   description: { fontSize: 14, color: C.textSecondary, lineHeight: 20, marginBottom: 12 },
   templatesContainer: { gap: 8 },
-  templateRow: { backgroundColor: C.surfaceElevated, borderRadius: 10, padding: 12 },
+  templateRow: { backgroundColor: C.surfaceElevated, borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center' },
+  templateInfo: { flex: 1 },
+  startTemplateBtn: { marginLeft: 8 },
   templateLabel: { fontSize: 13, fontWeight: '700', color: C.textPrimary, marginBottom: 2 },
   templateExercises: { fontSize: 12, color: C.textSecondary },
   emptyText: { fontSize: 18, fontWeight: '600', color: C.textPrimary },
   emptySubText: { fontSize: 14, color: '#9CA3AF', marginTop: 8 },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
-  customBuilderModal: { backgroundColor: C.surface, padding: 20, margin: 20, borderRadius: 20, maxHeight: '80%' },
-  modalTitle: { fontSize: 22, fontWeight: '700', marginBottom: 16, color: C.textPrimary },
-  addExerciseButton: { marginBottom: 16 },
-  customExerciseCard: { marginBottom: 12 },
+  fab: { position: 'absolute', right: 16, bottom: 24, backgroundColor: C.surfaceElevated },
+  customBuilderModal: {
+    backgroundColor: '#3A3A3C',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    marginHorizontal: 16,
+    marginVertical: 40,
+    borderRadius: 24,
+    height: '88%',
+    alignSelf: 'center',
+    width: '92%',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  modalBody: { flex: 1, marginTop: 4 },
+  modalFooter: { paddingTop: 8 },
+  modalTitle: { fontSize: 22, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.3 },
+  addExerciseButton: { marginBottom: 12, borderRadius: 12 },
+  customEmpty: { padding: 20, alignItems: 'center' },
+  customEmptyText: { color: C.textSecondary, fontSize: 13, textAlign: 'center' },
+  customExerciseCard: { marginBottom: 10, borderRadius: 12 },
   customExerciseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   customExerciseName: { fontSize: 16, fontWeight: '600', color: C.textPrimary },
   customExerciseCardBg: { backgroundColor: C.surfaceElevated },
   customExerciseInputs: { flexDirection: 'row', gap: 8 },
-  customInput: { flex: 1 },
-  startCustomButton: { marginTop: 16, marginBottom: 8 },
-  cancelButton: { marginTop: 8 },
-  exercisePickerModal: { backgroundColor: C.surface, padding: 20, margin: 20, borderRadius: 20, maxHeight: '80%' },
-  searchBar: { marginBottom: 12 },
-  exerciseList: { maxHeight: 300, marginBottom: 12 },
-  exerciseCard: { marginBottom: 8 },
-  exerciseCardTitle: { fontSize: 16, fontWeight: '600' },
-  exerciseCardSubtitle: { fontSize: 14, color: '#6B7280' },
-  closeButton: { marginTop: 8 },
+  customInput: { flex: 1, backgroundColor: C.surface },
+  startCustomButton: { marginBottom: 8, borderRadius: 12 },
+  cancelButton: { borderRadius: 12 },
+  exercisePickerModal: {
+    backgroundColor: '#3A3A3C',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    marginHorizontal: 16,
+    marginVertical: 40,
+    borderRadius: 24,
+    height: '88%',
+    alignSelf: 'center',
+    width: '92%',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  searchBar: { marginBottom: 12, borderRadius: 12, backgroundColor: C.surfaceElevated },
+  exerciseList: { flex: 1 },
+  exerciseCard: { marginBottom: 8, borderRadius: 12 },
+  exerciseCardBg: { backgroundColor: C.surfaceElevated },
+  exerciseCardTitle: { fontSize: 16, fontWeight: '600', color: C.textPrimary },
+  exerciseCardSubtitle: { fontSize: 13, color: C.textSecondary, textTransform: 'capitalize' },
+  closeButton: { borderRadius: 12 },
 });

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Card, SegmentedButtons } from 'react-native-paper';
 import { colors as C } from '../theme';
+import { localDateStr } from '../utils/date';
 
 interface CalendarProps {
   onDateSelect: (date: string) => void;
@@ -26,9 +27,7 @@ export default function Calendar({ onDateSelect, sessions }: CalendarProps) {
     return sessions.some((s) => s.date === dateStr);
   };
 
-  const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
+  const formatDate = (date: Date) => localDateStr(date);
 
   const isToday = (date: Date) => {
     const today = new Date();

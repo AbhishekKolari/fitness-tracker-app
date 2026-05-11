@@ -12,6 +12,7 @@ import YoutubePlayer from 'react-native-youtube-iframe';
 import { db } from '../../db/client';
 import { exercises } from '../../db/schema';
 import BodyDiagram from '../../components/BodyDiagram';
+import { colors as C } from '../../theme';
 
 function extractVideoId(url: string): string | null {
   const match = url.match(/(?:v=|youtu\.be\/)([^&\s]+)/);
@@ -45,7 +46,15 @@ export default function ExerciseDetailScreen() {
   return (
     <>
       <Stack.Screen
-        options={{ title: exercise.name, headerShown: true, headerBackTitle: 'Back' }}
+        options={{
+          title: exercise.name,
+          headerShown: true,
+          headerBackTitle: 'Back',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.textPrimary,
+          headerTitleStyle: { color: C.textPrimary, fontWeight: '700' },
+          contentStyle: { backgroundColor: C.bg },
+        }}
       />
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
@@ -103,101 +112,24 @@ export default function ExerciseDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  notFound: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notFoundText: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  badge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 999,
-    marginBottom: 20,
-  },
-  badgeCompound: {
-    backgroundColor: '#FEF3C7',
-  },
-  badgeAccessory: {
-    backgroundColor: '#F1F5F9',
-  },
-  badgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  badgeTextCompound: {
-    color: '#92400E',
-  },
-  badgeTextAccessory: {
-    color: '#475569',
-  },
-  section: {
-    marginBottom: 28,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 12,
-  },
-  muscleChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-  },
-  chip: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  chipText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '500',
-    textTransform: 'capitalize',
-  },
-  cueRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  cueNumber: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#F59E0B',
-    minWidth: 22,
-  },
-  cueText: {
-    fontSize: 15,
-    color: '#374151',
-    flex: 1,
-    lineHeight: 22,
-  },
-  videoPlaceholder: {
-    height: 220,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  videoPlaceholderText: {
-    fontSize: 15,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
+  container: { flex: 1, backgroundColor: C.bg },
+  content: { padding: 16, paddingBottom: 48 },
+  notFound: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
+  notFoundText: { fontSize: 16, color: C.textSecondary },
+  badge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, marginBottom: 20 },
+  badgeCompound: { backgroundColor: 'rgba(250, 17, 79, 0.15)' },
+  badgeAccessory: { backgroundColor: C.surfaceElevated },
+  badgeText: { fontSize: 13, fontWeight: '600', textTransform: 'capitalize' },
+  badgeTextCompound: { color: C.move },
+  badgeTextAccessory: { color: C.textSecondary },
+  section: { marginBottom: 28 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 12, letterSpacing: -0.2 },
+  muscleChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  chip: { backgroundColor: C.surfaceElevated, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  chipText: { fontSize: 12, color: C.textPrimary, fontWeight: '500', textTransform: 'capitalize' },
+  cueRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  cueNumber: { fontSize: 15, fontWeight: '700', color: C.move, minWidth: 22 },
+  cueText: { fontSize: 15, color: C.textPrimary, flex: 1, lineHeight: 22 },
+  videoPlaceholder: { height: 220, backgroundColor: C.surface, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  videoPlaceholderText: { fontSize: 15, color: C.textSecondary, fontWeight: '500' },
 });

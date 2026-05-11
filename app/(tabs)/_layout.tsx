@@ -19,9 +19,18 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="today"
+        options={{
           title: 'Today',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="today-outline" size={size} color={color} />
+            <Ionicons name="barbell-outline" size={size} color={color} />
           ),
         }}
       />
@@ -44,15 +53,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="progress"
-        options={{
-          title: 'Progress',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="trending-up-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
@@ -61,7 +61,8 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="today" options={{ href: null }} />
+      {/* Progress is accessible from Home/Profile but not shown as a tab to keep bar uncluttered */}
+      <Tabs.Screen name="progress" options={{ href: null }} />
     </Tabs>
   );
 }

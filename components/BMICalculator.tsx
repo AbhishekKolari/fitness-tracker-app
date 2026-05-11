@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Card, TextInput, Button, Text } from 'react-native-paper';
+import { Card, TextInput, Button, Text, Snackbar, Portal } from 'react-native-paper';
+import { colors as C } from '../theme';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { bodyStats } from '../db/schema';
 import { useSettings } from '../contexts/SettingsContext';
-import WeightSparkline from './WeightSparkline'; 
+import { localDateStr } from '../utils/date';
 
 interface BMICalculatorProps {
   onBMISaved?: () => void;
@@ -21,6 +22,20 @@ export default function BMICalculator({ onBMISaved }: BMICalculatorProps) {
   const [category, setCategory] = useState('');
   const [categoryColor, setCategoryColor] = useState('');
   const [saving, setSaving] = useState(false);
+  const [snackbar, setSnackbar] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<{ date: string; weightKg: number; heightCm: number | null } | null>(null);
+
+  const loadLastSaved = () => {
+    try {
+      const row = db.select().from(bodyStats).where(eq(bodyStats.date, localDateStr())).get();
+      if (row) setLastSaved({ date: row.date, weightKg: row.weightKg, heightCm: row.heightCm ?? null });
+      else setLastSaved(null);
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadLastSaved();
+  }, []);
 
   const calculateBMI = () => {
     let weightKg: number;
@@ -63,7 +78,7 @@ export default function BMICalculator({ onBMISaved }: BMICalculatorProps) {
     if (!bmi) return;
     setSaving(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateStr();
 
       const weightKgValue =
         settings.weightUnit === 'kg'
@@ -75,23 +90,29 @@ export default function BMICalculator({ onBMISaved }: BMICalculatorProps) {
           ? parseFloat(height)
           : (parseFloat(heightFt) * 12 + parseFloat(heightIn)) * 2.54;
 
-      const existing = await db
+      const existing = db
         .select()
         .from(bodyStats)
-        .where(eq(bodyStats.date, today));
+        .where(eq(bodyStats.date, today))
+        .all();
 
       if (existing.length > 0) {
-        await db.update(bodyStats)
+        db.update(bodyStats)
           .set({ weightKg: weightKgValue, heightCm: heightCmValue })
-          .where(eq(bodyStats.id, existing[0].id));
+          .where(eq(bodyStats.id, existing[0].id))
+          .run();
       } else {
-        await db.insert(bodyStats)
-          .values({ date: today, weightKg: weightKgValue, heightCm: heightCmValue });
+        db.insert(bodyStats)
+          .values({ date: today, weightKg: weightKgValue, heightCm: heightCmValue })
+          .run();
       }
 
+      setSnackbar('BMI entry saved');
+      loadLastSaved();
       onBMISaved?.();
     } catch (error) {
       console.error('Error saving BMI:', error);
+      setSnackbar('Failed to save entry');
     } finally {
       setSaving(false);
     }
@@ -201,28 +222,52 @@ export default function BMICalculator({ onBMISaved }: BMICalculatorProps) {
             >
               Save Entry
             </Button>
-
-            <WeightSparkline />
           </>
         )}
+
+        {lastSaved && (
+          <View style={styles.lastSavedRow}>
+            <Text style={styles.lastSavedLabel}>Saved today</Text>
+            <Text style={styles.lastSavedValue}>
+              {settings.weightUnit === 'kg'
+                ? `${lastSaved.weightKg.toFixed(1)} kg`
+                : `${(lastSaved.weightKg * 2.20462).toFixed(1)} lbs`}
+              {lastSaved.heightCm && lastSaved.heightCm > 0
+                ? `  ·  BMI ${(lastSaved.weightKg / Math.pow(lastSaved.heightCm / 100, 2)).toFixed(1)}`
+                : ''}
+            </Text>
+          </View>
+        )}
+
       </Card.Content>
+      <Portal>
+        <Snackbar
+          visible={!!snackbar}
+          onDismiss={() => setSnackbar(null)}
+          duration={2000}
+          style={{ backgroundColor: C.surfaceElevated }}
+          wrapperStyle={{ bottom: 80 }}
+        >
+          {snackbar}
+        </Snackbar>
+      </Portal>
     </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { marginBottom: 16 },
-  label: { fontSize: 14, marginBottom: 4, marginTop: 8 },
-  input: { marginBottom: 8 },
+  card: { marginBottom: 14, backgroundColor: C.surface, borderRadius: 16 },
+  label: { fontSize: 13, marginBottom: 4, marginTop: 8, color: C.textSecondary },
+  input: { marginBottom: 8, backgroundColor: C.surfaceElevated },
   heightRow: { flexDirection: 'row', gap: 8 },
   heightInput: { flex: 1 },
   resultContainer: { alignItems: 'center', marginVertical: 16 },
-  bmiValue: { fontSize: 48, fontWeight: 'bold' },
-  category: { fontSize: 24, fontWeight: '600', marginTop: 4 },
+  bmiValue: { fontSize: 48, fontWeight: '800', color: C.textPrimary, letterSpacing: -1 },
+  category: { fontSize: 22, fontWeight: '700', marginTop: 4 },
   barContainer: { marginVertical: 16 },
   barBackground: {
     height: 12,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: C.surfaceElevated,
     borderRadius: 6,
     position: 'relative',
     overflow: 'hidden',
@@ -236,6 +281,33 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   barLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  barLabel: { fontSize: 12, color: '#666' },
-  saveButton: { marginTop: 8 },
+  barLabel: { fontSize: 12, color: C.textSecondary },
+  saveButton: { marginTop: 8, borderRadius: 12 },
+  lastSavedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: C.surfaceElevated,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  lastSavedLabel: {
+    fontSize: 11,
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontWeight: '700',
+    flexShrink: 0,
+  },
+  lastSavedValue: {
+    fontSize: 14,
+    color: C.textPrimary,
+    fontWeight: '700',
+    textAlign: 'right',
+    flexShrink: 1,
+    marginLeft: 12,
+  },
 });
