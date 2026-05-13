@@ -65,17 +65,24 @@ npm install
 
 # 2. Run the dev server
 npm start
+# — or equivalently —
+npx expo start
+# Add `-c` to clear Metro's bundler cache if you hit stale-bundle weirdness:
+npx expo start -c
 
 # Then either:
 #   - Scan the QR code with the Expo Go app on your phone, or
 #   - Press `i` for iOS simulator (macOS) / `a` for Android emulator / `w` for web
 ```
 
+> `npm start` is just a thin wrapper around `expo start` (see `package.json`). Use whichever you prefer.
+
 ### ⚙️ Useful scripts
 
 | Command | What it does |
 | --- | --- |
-| `npm start` | Start the Metro bundler (Expo dev server) |
+| `npm start` / `npx expo start` | Start the Metro bundler (Expo dev server) |
+| `npx expo start -c` | Same, but clear Metro's bundler cache first |
 | `npm run ios` | Open in the iOS simulator (macOS only) |
 | `npm run android` | Open in an Android emulator |
 | `npm run web` | Run in the browser (limited — SQLite/native modules are stubbed) |
