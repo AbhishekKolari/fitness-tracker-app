@@ -40,6 +40,8 @@ export default function HomeScreen() {
   const [streak, setStreak] = useState(0);
   const [weekVolume, setWeekVolume] = useState(0);
   const [recent, setRecent] = useState<RecentSession[]>([]);
+  // Bump on every focus so child components (e.g. BodyStatsTrend) re-read DB.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(() => {
     try {
@@ -163,7 +165,10 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    load();
+    setRefreshKey((k) => k + 1);
+  }, [load]));
 
   const ringPct = todayProgress.total > 0 ? Math.min(1, todayProgress.done / todayProgress.total) : 0;
   const dashOffset = RING_CIRC * (1 - ringPct);
@@ -265,7 +270,7 @@ export default function HomeScreen() {
 
         {/* Body stats trend */}
         <View style={styles.trendCard}>
-          <BodyStatsTrend />
+          <BodyStatsTrend refreshKey={refreshKey} />
         </View>
 
         {/* Quick links */}
