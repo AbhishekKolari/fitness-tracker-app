@@ -15,6 +15,13 @@
       "when": 1778279948612,
       "tag": "0001_natural_malice",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778550000000,
+      "tag": "0002_rename_programs",
+      "breakpoints": true
     }
   ]
 }

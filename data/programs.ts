@@ -27,7 +27,7 @@ const ROW = 5;
 
 export const PROGRAMS: ProgramSeed[] = [
   {
-    name: 'StrongLifts 5×5',
+    name: 'Classic 5×5',
     description:
       'Two alternating full-body workouts, 3 days a week. Add 2.5 kg each session on upper lifts and 5 kg on squat/deadlift.',
     type: 'beginner',
@@ -53,9 +53,9 @@ export const PROGRAMS: ProgramSeed[] = [
     ],
   },
   {
-    name: 'Starting Strength',
+    name: 'Novice Barbell',
     description:
-      'Mark Rippetoe\'s barbell novice program. Three big compound lifts per session, 3 days a week, adding weight every workout.',
+      'Classic barbell novice program. Three big compound lifts per session, 3 days a week, adding weight every workout.',
     type: 'beginner',
     templates: [
       {
