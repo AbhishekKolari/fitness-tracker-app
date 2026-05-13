@@ -6,6 +6,16 @@ A minimal, offline-first strength-training tracker built with Expo + React Nativ
 
 > Dark UI, red accents, no accounts, no cloud — your data stays on your phone.
 
+<br />
+
+<table>
+  <tr>
+    <td><img src="images/strongline_image1.jpeg" width="280" alt="Strongline screenshot 1" /></td>
+    <td width="24"></td>
+    <td><img src="images/strongline_image2.jpeg" width="280" alt="Strongline screenshot 2" /></td>
+  </tr>
+</table>
+
 </div>
 
 ## ✨ Features
